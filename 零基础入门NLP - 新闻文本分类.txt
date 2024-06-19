@@ -1,0 +1,108 @@
+import pandas as pd
+import numpy as np
+import os
+from collections import Counter
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import RidgeClassifier
+from sklearn.metrics import f1_score
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+
+# 设置路径
+path = "D:\\机器学习阿里天池\\新闻文本分类"
+
+# 读取数据
+train = pd.read_csv(os.path.join(path, 'train_set.csv'), sep='\t')
+test = pd.read_csv(os.path.join(path, 'test_a.csv'), sep='\t')
+
+# 检查测试数据的列名
+print("Test data columns:", test.columns)
+
+# 1.数据分析
+# 句子长度分析
+train['text_len'] = train['text'].apply(lambda x: len(x.split(' ')))
+print(train['text_len'].describe())
+
+_ = plt.hist(train['text_len'], bins=200)
+plt.xlabel('Text length')
+plt.title("Histogram of text length")
+plt.xlim(-0.5, 7000)
+plt.show()
+
+# 新闻类别分布
+train['label'].value_counts().plot(kind='bar')
+plt.title('News class count')
+plt.xlabel("Category")
+plt.show()
+
+# 字符分布统计
+all_lines = ' '.join(list(train['text']))
+word_count = Counter(all_lines.split(" "))
+word_count = sorted(word_count.items(), key=lambda x: x[1], reverse=True)
+
+print(len(word_count))
+print(word_count[0])
+print(word_count[-1])
+
+# 根据字在每个句子的出现情况，反推出标点符号
+train['text_unique'] = train['text'].apply(lambda x: ' '.join(list(set(x.split(' ')))))
+all_lines = ' '.join(list(train['text_unique']))
+word_count = Counter(all_lines.split(" "))
+word_count = sorted(word_count.items(), key=lambda d: int(d[1]), reverse=True)
+
+print(word_count[0])
+print(word_count[1])
+print(word_count[2])
+
+# 分析赛题每篇新闻平均由多少个句子构成
+train['text_juzilen'] = train['text'].apply(lambda x: len(x.split(' 900 ')))
+print(train['text_juzilen'].mean())
+
+# 统计每类新闻中出现次数最多的字符
+label_text = train.groupby('label')['text'].apply(lambda x: ' '.join(list(x)))
+new_label_text = label_text.reset_index()
+label_word_count = new_label_text['text'].apply(lambda x: Counter(x.split(' ')))
+
+# 2.模型预测
+
+# 方法1: 简单模型
+tfidf = TfidfVectorizer(ngram_range=(1, 3), max_features=3000)
+train_test = tfidf.fit_transform(train['text'])
+
+clf = RidgeClassifier()
+clf.fit(train_test[:100], train['label'].values[:100])  # 使用前100条数据进行训练
+
+val_pred = clf.predict(train_test[100:200])  # 使用接下来的100条数据进行验证
+print(f1_score(train['label'].values[100:200], val_pred, average='macro'))
+
+# 方法2: 利用网格搜索
+tfidf = TfidfVectorizer(ngram_range=(1, 3), max_features=3000)
+X_train = tfidf.fit_transform(train['text'])
+
+# 训练集、验证集划分
+x_train, x_test, y_train, y_test = train_test_split(X_train, train['label'], test_size=0.2, random_state=42)
+
+# 模型训练
+clf = RidgeClassifier()
+clf.fit(x_train, y_train)
+
+# 模型预测，利用验证集预测
+y_pred = clf.predict(x_test)
+
+# F1评价函数
+print(f1_score(y_test, y_pred, average='macro'))
+
+# 预测测试集并生成提交文件
+X_test = tfidf.transform(test['text'])
+test_pred = clf.predict(X_test)
+
+# 检查测试数据是否有'id'列
+if 'id' in test.columns:
+    submission = pd.DataFrame({'id': test['id'], 'label': test_pred})
+else:
+    # 如果没有'id'列，假设测试数据的行索引可以作为id
+    submission = pd.DataFrame({'id': test.index, 'label': test_pred})
+
+# 保存结果到csv文件
+submission.to_csv(os.path.join(path, 'submission.csv'), index=False)
+print("Submission file has been generated.")
